@@ -10,7 +10,7 @@ namespace json {
 
 class JSONObject {
     std::string val;
-    mutable std::map<std::string, JSONObject> fields;
+    std::map<std::string, JSONObject> fields;
 
    public:
     enum { STR, NUM, OBJ, ARRAY } type;
@@ -39,7 +39,7 @@ class JSONObject {
     }
 
     const JSONObject &operator()(const std::string &key) const {
-        return fields[key];
+        return fields.at(key);
     }
 
     JSONObject &operator()(size_t key) { return (*this)(std::to_string(key)); }

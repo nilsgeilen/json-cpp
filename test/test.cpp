@@ -20,6 +20,13 @@ int main() {
     cout << string(json("_")) << endl;
     test(string(json("_")) == "", "_");
 
+    json("a")=12;
+
+    auto cjo = json;
+    test(cjo("_") == 0, "const");
+    test(cjo("_")("_") == 0, "const");
+    cout << cjo << endl;
+
     test(json("i") == 1, "i");
 
     test(json("x") == 11.5, "x");
