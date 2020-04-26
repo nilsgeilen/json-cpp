@@ -8,39 +8,36 @@
 
 namespace json {
 
+namespace {
+template <class T>
+inline std::string to_string(T num) {
+    std::stringstream strstr;
+    strstr << num;
+    return strstr.str();
+}
+}  // namespace
+
+enum Type { NIL, STR, NUM, OBJ, ARRAY };
+
 class JSONObject {
+    Type type;
     std::string val;
     std::map<std::string, JSONObject> fields;
 
    public:
-    enum { STR, NUM, OBJ, ARRAY } type;
-
     JSONObject(decltype(type) t = OBJ)
-        : val(t == OBJ ? "__object__" : t == STR ? "" : "0"), type(t) {}
+        : val{t == OBJ ? "__object__" : t == STR ? "" : "0"}, type{t} {}
 
-    JSONObject(std::string val, decltype(type) t = STR) : val(val), type(t) {}
+    JSONObject(std::string val, decltype(type) t = STR) : val{val}, type{t} {}
 
-    JSONObject(const char *val, decltype(type) t = STR) : val(val), type(t) {}
+    JSONObject(const char *val, decltype(type) t = STR) : val{val}, type{t} {}
 
     template <class Num>
-    JSONObject(Num num_val) : type(NUM) {
-        std::stringstream strstr;
-        strstr << num_val;
-        val = strstr.str();
-    }
+    JSONObject(Num num_val) : val{to_string(num_val)}, type{NUM} {}
 
-    JSONObject &operator()(const std::string &key) {
-        if (type == ARRAY) {
-            int pos;
-            std::stringstream{key} >> pos;
-            if (pos >= num<int>()) val = std::to_string(pos + 1);
-        }
-        return fields[key];
-    }
+    JSONObject &operator()(const std::string &key);
 
-    const JSONObject &operator()(const std::string &key) const {
-        return fields.at(key);
-    }
+    const JSONObject &operator()(const std::string &key) const;
 
     JSONObject &operator()(size_t key) { return (*this)(std::to_string(key)); }
 
@@ -48,60 +45,83 @@ class JSONObject {
         return (*this)(std::to_string(key));
     }
 
-    std::string str() const { return val; }
+    Type get_type() const { return type; }
+
+    std::string str() const {
+        if (type == OBJ) return "{" + std::to_string(size_t(this)) + "}";
+        if (type == ARRAY) return "[" + std::to_string(size_t(this)) + "]";
+        return val;
+    }
 
     operator std::string() const { return str(); }
 
-    template <class T>
-    T num() const {
+    template <class Num>
+    Num num() const {
         std::stringstream ss(val);
-        T t;
+        Num t;
         ss >> t;
         return t;
     }
 
-    //  template <class Num>
-    //  operator Num() const {
-    //      return num<Num>();
-    //  }
-
     operator double() const { return num<double>(); }
 
-    size_t size() const { return num<size_t>(); }
+    size_t size() const {
+        if (type == ARRAY) return num<size_t>();
+        return 0;
+    }
 
-    template <class T>
-    std::vector<T> num_array() const {
-        std::vector<T> array;
-        const int size = num<int>();
-        for (int i = 0; i < size; i++) {
-            array.push_back((*this)(i).num<T>());
+    auto begin() const { return fields.begin(); }
+
+    auto end() const { return fields.end(); }
+
+    auto begin() { return fields.begin(); }
+
+    auto end() { return fields.end(); }
+
+    std::vector<std::string> keys() const {
+        std::vector<std::string> keys;
+        for (const auto &[key, _] : fields) {
+            keys.push_back(key);
+        }
+        return keys;
+    }
+
+    template <class Num>
+    std::vector<Num> to_num_array() const {
+        std::vector<Num> array;
+        const size_t s = size();
+        for (size_t i = 0; i < s; i++) {
+            array.push_back((*this)(i).num<Num>());
         }
         return array;
     }
 
-    std::vector<std::string> str_array() const {
+    std::vector<std::string> to_str_array() const {
         std::vector<std::string> array;
-        const int size = num<int>();
-        for (int i = 0; i < size; i++) {
+        const size_t s = size();
+        for (size_t i = 0; i < s; i++) {
             array.push_back((*this)(i).str());
         }
         return array;
     }
-
-    friend class JSONPrinter;
 };
 
 inline JSONObject Array(size_t size = 0) {
-    return {std::to_string(size), JSONObject::ARRAY};
+    return {std::to_string(size), ARRAY};
+}
+
+template <class I>
+JSONObject Array(I begin, I end) {
+    JSONObject array = Array();
+    for (; begin < end; begin++) {
+        array(array.size()) = *begin;
+    }
+    return array;
 }
 
 template <class T>
-JSONObject Array(std::vector<T> data) {
-    JSONObject array = Array(std::size(data));
-    for (unsigned int i = 0; i < std::size(data); i++) {
-        array(i) = data[i];
-    }
-    return array;
+JSONObject Array(T data) {
+    return Array(std::begin(data), std::end(data));
 }
 
 struct JSONFormat {
@@ -117,9 +137,7 @@ class JSONPrinter {
 };
 
 inline std::ostream &operator<<(std::ostream &stream, const JSONObject &jo) {
-    JSONPrinter printer;
-    printer.print(stream, jo);
-    //  stream << jo.str();
+    JSONPrinter{}.print(stream, jo);
     return stream;
 }
 
@@ -130,7 +148,6 @@ class JSONParser {
     JSONFormat format;
 
     JSONObject parse(std::istream &source);
-    JSONObject parse(std::string path);
 
    private:
     std::string next_token(std::istream &source, bool pop = true);
@@ -138,22 +155,12 @@ class JSONParser {
 
 class JavaConfigParser {
    public:
-    std::istream &source;
     char delim = '=';
 
-    JSONObject parse() {
-        using namespace std;
-
-        JSONObject jo;
-        string prop, val;
-        while (getline(source, prop, delim)) {
-            if (getline(source, val)) {
-                jo(prop) = val;
-            }
-        }
-        return jo;
-    }
+    JSONObject parse(std::istream &source);
 };
+
+JSONObject load(std::string path);
 
 template <class T, class Serializor>
 void serialize(T &o, Serializor s) {
@@ -165,10 +172,6 @@ struct SerializorFromJSON {
 
     template <class T>
     void assoc(T &t, std::string key) {
-        // auto &child = jo[key];
-
-        // t = (T)child;
-
         t = (T)jo(key);
     }
 

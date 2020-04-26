@@ -1,24 +1,60 @@
 #include "json.h"
 
 #include <algorithm>
-#include <iostream>
 #include <fstream>
+#include <iostream>
 
 namespace json {
 using namespace std;
 
+namespace {
+inline JSONObject &nil() {
+    static JSONObject nil{"__null__", NIL};
+    return nil;
+}
+}  // namespace
+
+JSONObject &JSONObject::operator()(const std::string &key) {
+    if (type == STR || type == NUM || type == NIL) return nil();
+    if (type == ARRAY) {
+        size_t pos;
+        std::stringstream{key} >> pos;
+        if (pos >= size()) val = std::to_string(pos + 1);
+    }
+    return fields[key];
+}
+
+const JSONObject &JSONObject::operator()(const std::string &key) const {
+    if (type == STR || type == NUM || type == NIL) return nil();
+    if (type == ARRAY) {
+        size_t pos;
+        std::stringstream{key} >> pos;
+        if (pos < size()) {
+            auto field = fields.find(key);
+            if (field == fields.end())
+                return nil();
+            else
+                return field->second;
+        }
+    }
+    return fields.at(key);
+}
+
 void JSONPrinter::print(std::ostream &stream, const JSONObject &jo, int tab) {
-    switch (jo.type) {
-        case JSONObject::NUM:
+    switch (jo.get_type()) {
+        case NIL:
+            stream << "null";
+            break;
+        case NUM:
             stream << double(jo);
             break;
-        case JSONObject::STR:
+        case STR:
             stream << format.DOUBLE_QUOTE << jo.str() << format.DOUBLE_QUOTE;
             break;
-        case JSONObject::OBJ: {
+        case OBJ: {
             stream << format.OBJ_BEGIN;
             bool first = true;
-            for (auto field : jo.fields) {
+            for (auto field : jo) {
                 if (first) {
                     first = false;
                 } else {
@@ -35,14 +71,14 @@ void JSONPrinter::print(std::ostream &stream, const JSONObject &jo, int tab) {
                 if (verbose) stream << ' ';
                 print(stream, field.second, tab + 1);
             }
-            if (verbose) {
+            if (!first && verbose) {
                 stream << '\n';
                 for (int i = 0; i < tab; i++) stream << '\t';
             }
             stream << format.OBJ_END;
             break;
         }
-        case JSONObject::ARRAY: {
+        case ARRAY: {
             stream << format.ARRAY_BEGIN;
             int size = jo.num<int>();
             bool first = true;
@@ -134,7 +170,7 @@ JSONObject JSONParser::parse(std::istream &source) {
         }
         return jo;
     } else if (token[0] == format.ARRAY_BEGIN) {
-        JSONObject array{JSONObject::ARRAY};
+        JSONObject array{ARRAY};
         int i = 0;
         while (true) {
             token = next_token(source, false);
@@ -155,13 +191,33 @@ JSONObject JSONParser::parse(std::istream &source) {
         next_token(source);
         return JSONObject{token};
     } else {
-        return JSONObject{token, JSONObject::NUM};
+        return JSONObject{token, NUM};
     }
 }
 
-JSONObject JSONParser::parse(std::string path) {
+JSONObject JavaConfigParser::parse(std::istream &source) {
+    JSONObject jo;
+    string prop, val;
+    while (getline(source, prop, delim)) {
+        if (getline(source, val)) {
+            jo(prop) = val;
+        }
+    }
+    return jo;
+}
+
+JSONObject load(std::string path) {
+    auto ending = path.substr(path.find_last_of('.'));
+
     ifstream file{path};
-    auto obj = parse(file);
+    JSONObject obj;
+
+    if (ending == "properties" || ending == "config") {
+        obj = JavaConfigParser{}.parse(file);
+    } else {
+        obj = JSONParser{}.parse(file);
+    }
+
     file.close();
     return obj;
 }
