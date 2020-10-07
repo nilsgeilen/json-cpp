@@ -17,7 +17,11 @@ inline std::string to_string(T num) {
 }
 }  // namespace
 
-enum Type { NIL, STR, NUM, OBJ, ARRAY };
+enum Type { NIL,
+            STR,
+            NUM,
+            OBJ,
+            ARRAY };
 
 class JSONObject {
     Type type;
@@ -43,6 +47,13 @@ class JSONObject {
 
     const JSONObject &operator()(size_t key) const {
         return (*this)(std::to_string(key));
+    }
+
+    template <class K, class V>
+    V operator()(K key, V def) const {
+        if (has(key))
+            return (V)(*this)(key);
+        return def;
     }
 
     Type get_type() const { return type; }
@@ -84,6 +95,14 @@ class JSONObject {
             keys.push_back(key);
         }
         return keys;
+    }
+
+    bool has(std::string key) const {
+        for (const auto &[k, _] : fields) {
+            if (k == key)
+                return true;
+        }
+        return false;
     }
 
     template <class Num>
